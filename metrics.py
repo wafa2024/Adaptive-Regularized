@@ -1,63 +1,61 @@
+"""Classification metrics and the four diagnostics (manuscript Sections 6.7-6.8).
+
+TCS  = (1/|E_t|) sum_{(i,j) in E_t} ||z_i - z_j||^2                 unweighted, temporal edges
+GSI  = (1/N) Tr(Z^T L0 Z) = (1/N) sum_{(i,j) in E} w0_ij ||z_i - z_j||^2
+       L0 is the Laplacian of the INITIAL weights W0. Using the same reference
+       Laplacian for every model makes GSI comparable across variants. (With the
+       adaptive weights w~ = a*w0, a in (0,1), GSI would fall mechanically whenever
+       the coefficients shrink, even with identical embeddings.) The adaptive-weight
+       energy is also reported as ``gsi_adaptive``.
+SR   = fraction of |theta| < tau over Theta_s = {phi, classifier weights}
+Delta_eps = (F1_clean - F1_perturbed) / F1_clean, computed per seed and then averaged.
+
+TCS and GSI use different edge sets and weights, so neither can be derived from
+the other.
+"""
+
 from __future__ import annotations
 
 import numpy as np
 import torch
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+from sklearn.metrics import accuracy_score, f1_score, precision_recall_fscore_support
 
-from losses import graph_smoothness_loss, temporal_consistency_loss
+from losses import pairwise_energy
 
 
-@torch.no_grad()
-def classification_metrics(logits: torch.Tensor, labels: torch.Tensor) -> dict[str, float]:
-    y_true = labels.detach().cpu().numpy()
-    y_pred = logits.argmax(dim=1).detach().cpu().numpy()
-
-    accuracy = accuracy_score(y_true, y_pred)
-    precision, recall, f1, _ = precision_recall_fscore_support(
-        y_true,
-        y_pred,
-        average="binary" if len(np.unique(y_true)) == 2 else "weighted",
-        zero_division=0,
-    )
-    return {
-        "accuracy": float(accuracy),
-        "precision": float(precision),
-        "recall": float(recall),
-        "f1": float(f1),
-    }
+def classification_metrics(y_true, y_pred, binary: bool = True) -> dict[str, float]:
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    out = {"accuracy": float(accuracy_score(y_true, y_pred))}
+    if binary:
+        p, r, f, _ = precision_recall_fscore_support(y_true, y_pred, average="binary", pos_label=1, zero_division=0)
+        out.update({"precision": float(p), "recall": float(r), "f1": float(f)})
+    else:
+        p, r, f, _ = precision_recall_fscore_support(y_true, y_pred, average="macro", zero_division=0)
+        out.update({"precision": float(p), "recall": float(r), "f1": float(f),
+                    "f1_weighted": float(f1_score(y_true, y_pred, average="weighted", zero_division=0))})
+    return out
 
 
 @torch.no_grad()
-def diagnostic_metrics(
-    model,
-    data,
-    sparsity_threshold: float = 1e-3,
-) -> dict[str, float]:
-    logits, embeddings, adaptive_edge_weight = model(data.x, data.edge_index, data.edge_weight)
+def diagnostics(model, g, z: torch.Tensor, kind: str, sparsity_threshold: float, chunk: int = 200_000) -> dict[str, float]:
+    n = max(g.num_nodes, 1)
+    m_t = g.tedge_index.size(1)
+    tcs = float(pairwise_energy(z, g.tedge_index, None) / max(m_t, 1)) if m_t else float("nan")
+    gsi = float(pairwise_energy(z, g.edge_index, g.w0) / n)
+    out = {"tcs": tcs, "gsi": gsi, "num_temporal_edges": int(m_t), "num_relational_edges": int(g.edge_index.size(1))}
 
-    tcs = temporal_consistency_loss(
-        embeddings,
-        data.edge_index,
-        adaptive_edge_weight,
-        getattr(data, "temporal_edge_mask", None),
-    )
-    gsi = graph_smoothness_loss(embeddings, data.edge_index, adaptive_edge_weight) / max(data.x.size(0), 1)
-
-    sparse_params = model.sparsity_parameters().detach()
-    sparsity_ratio = (sparse_params.abs() < sparsity_threshold).float().mean()
-
-    out = classification_metrics(logits, data.y)
-    out.update(
-        {
-            "tcs": float(tcs.detach().cpu()),
-            "gsi": float(gsi.detach().cpu()),
-            "sr": float(sparsity_ratio.detach().cpu()),
-        }
-    )
+    if kind == "artgl":
+        energy = 0.0
+        for s in range(0, g.edge_index.size(1), chunk):
+            ei = g.edge_index[:, s:s + chunk]
+            a = model.edge_coefficients(g.x, ei)
+            energy += float(pairwise_energy(z, ei, a * g.w0[s:s + chunk]))
+        out["gsi_adaptive"] = energy / n
+        theta = model.sparsity_parameters().detach()
+        out["sr"] = float((theta.abs() < sparsity_threshold).float().mean())
     return out
 
 
 def robustness_degradation(clean_f1: float, perturbed_f1: float) -> float:
-    if clean_f1 <= 0:
-        return 0.0
-    return float((clean_f1 - perturbed_f1) / clean_f1)
+    return float((clean_f1 - perturbed_f1) / clean_f1) if clean_f1 > 0 else float("nan")

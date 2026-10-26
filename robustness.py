@@ -1,79 +1,94 @@
+"""Robustness evaluation (manuscript Section 6.10).
+
+Bounded random noise: L2 sphere of radius epsilon on the continuous features,
+clipped to the valid range; ``noise_draws`` independent draws per epsilon, with F1
+averaged over the draws.
+
+FGSM / PGD: L-infinity budget epsilon on the continuous features only. PGD uses a
+random start, step size alpha, projection onto the epsilon-ball after every step,
+and clipping to the valid range. The graph (E, W0) is built from the clean data
+and held fixed; the perturbation changes node features and therefore also the
+adaptive coefficients a_ij. All test nodes are perturbed simultaneously, and the
+gradient is the exact full-graph gradient (batching.loss_gradient).
+
+Every row reports the effective perturbation norms after clipping.
+"""
+
 from __future__ import annotations
 
 import torch
-from torch.nn import functional as F
 
-from losses import make_l2_noise
+from batching import infer, loss_gradient
 from metrics import classification_metrics, robustness_degradation
+from perturbation import clip_to_valid, effective_norms, random_l2_perturbation
+
+
+def _f1(model, g, cfg, x, binary):
+    logits, _ = infer(model, g, cfg.num_layers, cfg.eval_chunk_size, x=x)
+    return classification_metrics(g.y.cpu().numpy(), logits.argmax(1).cpu().numpy(), binary)["f1"]
 
 
 @torch.no_grad()
-def evaluate_under_l2_noise(model, data, epsilons: list[float]) -> list[dict[str, float]]:
-    """Evaluate F1 degradation under bounded random L2 perturbations."""
-
-    model.eval()
-    clean_logits, _, _ = model(data.x, data.edge_index, data.edge_weight)
-    clean_f1 = classification_metrics(clean_logits, data.y)["f1"]
-
+def evaluate_noise(model, g, cfg, clean_f1: float, binary: bool, seed: int) -> list[dict]:
+    gen_state = torch.random.get_rng_state()
+    torch.manual_seed(10_000 + seed)
     rows = []
-    for eps in epsilons:
-        delta = make_l2_noise(data.x, eps)
-        perturbed_logits, _, _ = model(data.x + delta, data.edge_index, data.edge_weight)
-        perturbed_f1 = classification_metrics(perturbed_logits, data.y)["f1"]
-        rows.append(
-            {
-                "epsilon": eps,
-                "clean_f1": clean_f1,
-                "perturbed_f1": perturbed_f1,
-                "delta_epsilon": robustness_degradation(clean_f1, perturbed_f1),
-            }
-        )
+    for eps in cfg.noise_epsilons:
+        f1s, norms = [], []
+        for _ in range(cfg.noise_draws):
+            delta = random_l2_perturbation(g.x, eps, g.continuous_mask, g.lower, g.upper)
+            f1s.append(_f1(model, g, cfg, g.x + delta, binary))
+            norms.append(effective_norms(delta))
+        pert = sum(f1s) / len(f1s)
+        rows.append({
+            "epsilon": eps,
+            "clean_f1": clean_f1,
+            "perturbed_f1": pert,
+            "perturbed_f1_draws": f1s,
+            "delta_epsilon": robustness_degradation(clean_f1, pert),
+            **{k: max(n[k] for n in norms) if k.endswith("max") else sum(n[k] for n in norms) / len(norms)
+               for k in norms[0]},
+        })
+    torch.random.set_rng_state(gen_state)
     return rows
 
 
-def fgsm_attack(model, data, epsilon: float) -> torch.Tensor:
-    x_adv = data.x.detach().clone().requires_grad_(True)
-    logits, _, _ = model(x_adv, data.edge_index, data.edge_weight)
-    loss = F.cross_entropy(logits, data.y)
-    grad = torch.autograd.grad(loss, x_adv)[0]
-    return torch.clamp(x_adv + epsilon * grad.sign(), min=-5.0, max=5.0).detach()
+def fgsm(model, g, cfg, epsilon: float) -> torch.Tensor:
+    mask = g.continuous_mask.to(g.x.dtype).unsqueeze(0)
+    grad = loss_gradient(model, g, cfg.num_layers, cfg.eval_chunk_size, g.x)
+    x_adv = g.x + epsilon * grad.sign() * mask
+    return clip_to_valid(g.x, x_adv, g.lower, g.upper).detach()
 
 
-def pgd_attack(model, data, epsilon: float, step_size: float, steps: int) -> torch.Tensor:
-    x_clean = data.x.detach()
-    x_adv = x_clean + torch.empty_like(x_clean).uniform_(-epsilon, epsilon)
-    x_adv = torch.clamp(x_adv, min=-5.0, max=5.0).detach()
-
+def pgd(model, g, cfg, epsilon: float, step_size: float, steps: int) -> torch.Tensor:
+    mask = g.continuous_mask.to(g.x.dtype).unsqueeze(0)
+    x0 = g.x
+    x_adv = x0 + torch.empty_like(x0).uniform_(-epsilon, epsilon) * mask
+    x_adv = clip_to_valid(x0, x_adv, g.lower, g.upper)
     for _ in range(steps):
-        x_adv.requires_grad_(True)
-        logits, _, _ = model(x_adv, data.edge_index, data.edge_weight)
-        loss = F.cross_entropy(logits, data.y)
-        grad = torch.autograd.grad(loss, x_adv)[0]
-        x_adv = x_adv + step_size * grad.sign()
-        x_adv = torch.max(torch.min(x_adv, x_clean + epsilon), x_clean - epsilon)
-        x_adv = torch.clamp(x_adv, min=-5.0, max=5.0).detach()
-
+        grad = loss_gradient(model, g, cfg.num_layers, cfg.eval_chunk_size, x_adv)
+        x_adv = x_adv + step_size * grad.sign() * mask
+        x_adv = torch.maximum(torch.minimum(x_adv, x0 + epsilon), x0 - epsilon)
+        x_adv = clip_to_valid(x0, x_adv, g.lower, g.upper).detach()
     return x_adv
 
 
-def evaluate_adversarial(model, data, epsilon: float = 0.05, pgd_steps: int = 10, pgd_step_size: float = 0.01) -> dict[str, float]:
-    model.eval()
-
-    clean_logits, _, _ = model(data.x, data.edge_index, data.edge_weight)
-    clean_f1 = classification_metrics(clean_logits, data.y)["f1"]
-
-    x_fgsm = fgsm_attack(model, data, epsilon=epsilon)
-    fgsm_logits, _, _ = model(x_fgsm, data.edge_index, data.edge_weight)
-    fgsm_f1 = classification_metrics(fgsm_logits, data.y)["f1"]
-
-    x_pgd = pgd_attack(model, data, epsilon=epsilon, step_size=pgd_step_size, steps=pgd_steps)
-    pgd_logits, _, _ = model(x_pgd, data.edge_index, data.edge_weight)
-    pgd_f1 = classification_metrics(pgd_logits, data.y)["f1"]
-
+def evaluate_adversarial(model, g, cfg, clean_f1: float, binary: bool, seed: int) -> dict:
+    torch.manual_seed(20_000 + seed)
+    x_f = fgsm(model, g, cfg, cfg.adv_epsilon)
+    x_p = pgd(model, g, cfg, cfg.adv_epsilon, cfg.pgd_step_size, cfg.pgd_steps)
+    f_f = _f1(model, g, cfg, x_f, binary)
+    f_p = _f1(model, g, cfg, x_p, binary)
+    nf = effective_norms(x_f - g.x)
+    np_ = effective_norms(x_p - g.x)
     return {
         "clean_f1": clean_f1,
-        "fgsm_f1": fgsm_f1,
-        "fgsm_drop": robustness_degradation(clean_f1, fgsm_f1),
-        "pgd_f1": pgd_f1,
-        "pgd_drop": robustness_degradation(clean_f1, pgd_f1),
+        "fgsm_f1": f_f,
+        "fgsm_drop": robustness_degradation(clean_f1, f_f),
+        "pgd_f1": f_p,
+        "pgd_drop": robustness_degradation(clean_f1, f_p),
+        "fgsm_eff_linf_max": nf["eff_linf_max"],
+        "pgd_eff_linf_max": np_["eff_linf_max"],
+        "fgsm_eff_l2_mean": nf["eff_l2_mean"],
+        "pgd_eff_l2_mean": np_["eff_l2_mean"],
     }

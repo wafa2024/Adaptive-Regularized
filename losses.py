@@ -1,102 +1,71 @@
+"""Composite objective (manuscript Section 4.6). For a training subgraph with N nodes:
+
+  L_cls    = (1/N) sum_i CE(logits_i, y_i)
+  L_temp   = (1/N) sum_{(i,j) in E_t} omega_ij ||z_i - z_j||^2        (temporal edges, fixed weights)
+  L_graph  = (1/N) Tr(Z^T L~ Z) = (1/N) sum_{(i,j) in E} w~_ij ||z_i - z_j||^2   (relational edges, adaptive)
+  L_sparse = (1/|Theta_s|) ||Theta_s||_1
+  L_rob    = (1/N) sum_i || p(x_i) - p(x_i + delta_i) ||^2
+
+Sums over E and E_t run over undirected edges, each counted once, so the Laplacian
+identity Tr(Z^T L Z) = sum_{i<j} w_ij ||z_i - z_j||^2 holds exactly. p(.) is the
+softmax output with the clean prediction detached. delta_i has L2 norm epsilon on
+the continuous features only, and is then clipped to the valid feature range
+(perturbation.py).
+"""
+
 from __future__ import annotations
 
 import torch
 from torch.nn import functional as F
 
-
-def classification_loss(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-    return F.cross_entropy(logits, labels)
+from perturbation import random_l2_perturbation
 
 
-def temporal_consistency_loss(
-    embeddings: torch.Tensor,
-    edge_index: torch.Tensor,
-    edge_weight: torch.Tensor,
-    temporal_edge_mask: torch.Tensor | None = None,
-) -> torch.Tensor:
-    src, dst = edge_index
-    if temporal_edge_mask is not None:
-        src = src[temporal_edge_mask]
-        dst = dst[temporal_edge_mask]
-        edge_weight = edge_weight[temporal_edge_mask]
+def pairwise_energy(z: torch.Tensor, edge_index: torch.Tensor, weight: torch.Tensor | None) -> torch.Tensor:
+    """sum over undirected edges of weight * ||z_i - z_j||^2 (unnormalised)."""
 
-    diff = embeddings[src] - embeddings[dst]
-    squared_distance = diff.pow(2).sum(dim=1)
-    return (edge_weight * squared_distance).mean()
+    if edge_index.size(1) == 0:
+        return z.sum() * 0.0
+    diff = z[edge_index[0]] - z[edge_index[1]]
+    sq = diff.pow(2).sum(dim=1)
+    return (sq if weight is None else weight * sq).sum()
 
 
-def graph_smoothness_loss(
-    embeddings: torch.Tensor,
-    edge_index: torch.Tensor,
-    edge_weight: torch.Tensor,
-) -> torch.Tensor:
-    src, dst = edge_index
-    diff = embeddings[src] - embeddings[dst]
-    squared_distance = diff.pow(2).sum(dim=1)
+def composite_loss(model, g, lambdas: dict[str, float], epsilon: float,
+                   continuous_mask: torch.Tensor, lower: torch.Tensor, upper: torch.Tensor,
+                   kind: str = "artgl"):
+    """g is a LocalGraph (a contiguous temporal training subgraph)."""
 
-    # The 0.5 factor matches the standard undirected Laplacian identity.
-    return 0.5 * (edge_weight * squared_distance).mean()
+    n = max(g.num_nodes, 1)
+    logits, z, w_eff = model(g.x, g.edge_index, g.w0)
+    l_cls = F.cross_entropy(logits, g.y)
+    logs = {"loss_cls": float(l_cls.detach())}
+    if kind != "artgl":
+        logs["loss_total"] = logs["loss_cls"]
+        return l_cls, logs
 
+    total = l_cls
+    zero = l_cls.new_zeros(())
+    l_temp = pairwise_energy(z, g.tedge_index, g.tw) / n if lambdas["temp"] > 0 else zero
+    l_graph = pairwise_energy(z, g.edge_index, w_eff) / n if lambdas["graph"] > 0 else zero
+    theta = model.sparsity_parameters()
+    l_sparse = theta.abs().mean() if lambdas["sparse"] > 0 else zero
+    if lambdas["robust"] > 0:
+        delta = random_l2_perturbation(g.x, epsilon, continuous_mask, lower, upper)
+        pert_logits, _, _ = model(g.x + delta, g.edge_index, g.w0)
+        p_clean = F.softmax(logits.detach(), dim=1)
+        p_pert = F.softmax(pert_logits, dim=1)
+        l_rob = (p_clean - p_pert).pow(2).sum(dim=1).mean()
+    else:
+        l_rob = zero
 
-def sparsity_loss(parameter_vector: torch.Tensor) -> torch.Tensor:
-    return parameter_vector.abs().mean()
-
-
-def make_l2_noise(x: torch.Tensor, epsilon: float) -> torch.Tensor:
-    noise = torch.randn_like(x)
-    noise_norm = noise.norm(p=2, dim=1, keepdim=True).clamp_min(1e-12)
-    return epsilon * noise / noise_norm
-
-
-def robustness_loss(
-    model,
-    x: torch.Tensor,
-    edge_index: torch.Tensor,
-    edge_weight: torch.Tensor,
-    clean_logits: torch.Tensor,
-    epsilon: float,
-) -> torch.Tensor:
-    delta = make_l2_noise(x, epsilon)
-    perturbed_logits, _, _ = model(x + delta, edge_index, edge_weight)
-
-    clean_prob = F.softmax(clean_logits.detach(), dim=1)
-    perturbed_prob = F.softmax(perturbed_logits, dim=1)
-    return (clean_prob - perturbed_prob).pow(2).sum(dim=1).mean()
-
-
-def composite_loss(
-    model,
-    data,
-    lambdas: dict[str, float],
-    epsilon: float,
-) -> tuple[torch.Tensor, dict[str, float]]:
-    logits, embeddings, adaptive_edge_weight = model(data.x, data.edge_index, data.edge_weight)
-
-    l_cls = classification_loss(logits, data.y)
-    l_temp = temporal_consistency_loss(
-        embeddings,
-        data.edge_index,
-        adaptive_edge_weight,
-        getattr(data, "temporal_edge_mask", None),
-    )
-    l_graph = graph_smoothness_loss(embeddings, data.edge_index, adaptive_edge_weight)
-    l_sparse = sparsity_loss(model.sparsity_parameters())
-    l_rob = robustness_loss(model, data.x, data.edge_index, data.edge_weight, logits, epsilon)
-
-    total = (
-        l_cls
-        + lambdas["temp"] * l_temp
-        + lambdas["graph"] * l_graph
-        + lambdas["sparse"] * l_sparse
-        + lambdas["robust"] * l_rob
-    )
-
-    logs = {
-        "loss_total": float(total.detach().cpu()),
-        "loss_cls": float(l_cls.detach().cpu()),
-        "loss_temp": float(l_temp.detach().cpu()),
-        "loss_graph": float(l_graph.detach().cpu()),
-        "loss_sparse": float(l_sparse.detach().cpu()),
-        "loss_robust": float(l_rob.detach().cpu()),
-    }
+    total = (l_cls + lambdas["temp"] * l_temp + lambdas["graph"] * l_graph
+             + lambdas["sparse"] * l_sparse + lambdas["robust"] * l_rob)
+    logs.update({
+        "loss_total": float(total.detach()),
+        "loss_temp": float(l_temp.detach()),
+        "loss_graph": float(l_graph.detach()),
+        "loss_sparse": float(l_sparse.detach()),
+        "loss_robust": float(l_rob.detach()),
+    })
     return total, logs
