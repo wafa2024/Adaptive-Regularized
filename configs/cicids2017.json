@@ -1,0 +1,6 @@
+{
+  "dataset": "cicids2017",
+  "data_paths": ["data/CICIDS2017/TrafficLabelling/*.csv"],
+  "temporal_window": 60.0,
+  "output_dir": "results"
+}

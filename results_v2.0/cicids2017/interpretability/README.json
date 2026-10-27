@@ -1,0 +1,16 @@
+{
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "per_class": 3000,
+  "extended_noise_epsilons": [
+    0.5,
+    1.0,
+    2.0,
+    5.0
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "dataset": "unsw_nb15",
+  "data_paths": ["data/UNSW-NB15/UNSW-NB15_[1-4].csv"],
+  "temporal_window": 30.0,
+  "output_dir": "results"
+}

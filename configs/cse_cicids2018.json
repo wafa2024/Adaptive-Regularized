@@ -1,0 +1,6 @@
+{
+  "dataset": "cse_cicids2018",
+  "data_paths": ["data/CSE-CIC-IDS2018/Processed Traffic Data for ML Algorithms/*.csv"],
+  "temporal_window": 60.0,
+  "output_dir": "results"
+}

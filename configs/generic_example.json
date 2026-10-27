@@ -1,0 +1,14 @@
+{
+  "dataset": "generic",
+  "data_paths": ["data/my_flows.csv"],
+  "label_col": "label",
+  "time_col": "timestamp",
+  "src_col": "src_ip",
+  "dst_col": "dst_ip",
+  "protocol_col": "proto",
+  "drop_cols": ["flow_id"],
+  "discrete_cols": ["dst_port"],
+  "benign_values": ["benign", "normal", "0"],
+  "temporal_window": 30.0,
+  "output_dir": "results"
+}

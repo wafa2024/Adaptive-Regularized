@@ -1,0 +1,224 @@
+{
+  "graph_params_from_source": {
+    "temporal_window": 30.0,
+    "max_neighbors": 30,
+    "similarity_threshold": 0.65,
+    "alpha": 0.5,
+    "beta": 0.1,
+    "temporal_key": "pair"
+  },
+  "features": [
+    "duration_s",
+    "fwd_pkts",
+    "bwd_pkts",
+    "fwd_bytes",
+    "bwd_bytes",
+    "dst_port",
+    "protocol=icmp",
+    "protocol=other",
+    "protocol=tcp",
+    "protocol=udp"
+  ],
+  "unsw_nb15": {
+    "dataset": "unsw_nb15",
+    "feature_set": "shared",
+    "source_files": [
+      "UNSW-NB15_1.csv",
+      "UNSW-NB15_2.csv",
+      "UNSW-NB15_3.csv",
+      "UNSW-NB15_4.csv"
+    ],
+    "rows_read": 2540047,
+    "rows_after_cleaning": 2022565,
+    "cleaning_notes": [
+      "dropped 517482 exact duplicate rows"
+    ],
+    "split": "chronological",
+    "label_mode": "binary",
+    "label_mapping": "benign -> 0, every attack category -> 1",
+    "features": {
+      "continuous_perturbable": [
+        "duration_s",
+        "fwd_pkts",
+        "bwd_pkts",
+        "fwd_bytes",
+        "bwd_bytes"
+      ],
+      "discrete_not_perturbed": [
+        "dst_port"
+      ],
+      "categorical_one_hot_not_perturbed": [
+        "protocol"
+      ],
+      "encoded_dimension": 10
+    },
+    "splits": {
+      "train": {
+        "rows": 1415796,
+        "benign": 1369620,
+        "malicious": 46176,
+        "per_category": {
+          "benign": 1369620,
+          "exploits": 13849,
+          "fuzzers": 11035,
+          "generic": 8826,
+          "reconnaissance": 6689,
+          "dos": 2902,
+          "analysis": 1107,
+          "backdoor": 914,
+          "shellcode": 766,
+          "worms": 88
+        },
+        "time_range_s": [
+          0.0,
+          2310484.0
+        ]
+      },
+      "val": {
+        "rows": 202256,
+        "benign": 186886,
+        "malicious": 15370,
+        "per_category": {
+          "benign": 186886,
+          "exploits": 4634,
+          "fuzzers": 3549,
+          "generic": 3121,
+          "reconnaissance": 2234,
+          "dos": 896,
+          "backdoor": 335,
+          "analysis": 323,
+          "shellcode": 251,
+          "worms": 27
+        },
+        "time_range_s": [
+          2310484.0,
+          2318482.0
+        ]
+      },
+      "test": {
+        "rows": 404513,
+        "benign": 374046,
+        "malicious": 30467,
+        "per_category": {
+          "benign": 374046,
+          "exploits": 9002,
+          "fuzzers": 6795,
+          "generic": 6530,
+          "reconnaissance": 4421,
+          "dos": 1792,
+          "analysis": 691,
+          "backdoor": 688,
+          "shellcode": 494,
+          "worms": 54
+        },
+        "time_range_s": [
+          2318482.0,
+          2334691.0
+        ]
+      }
+    }
+  },
+  "target:cicids2017": {
+    "dataset": "cicids2017",
+    "feature_set": "shared",
+    "source_files": [
+      "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv",
+      "Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv",
+      "Friday-WorkingHours-Morning.pcap_ISCX.csv",
+      "Monday-WorkingHours.pcap_ISCX.csv",
+      "Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv",
+      "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
+      "Tuesday-WorkingHours.pcap_ISCX.csv",
+      "Wednesday-workingHours.pcap_ISCX.csv"
+    ],
+    "rows_read": 3119345,
+    "rows_after_cleaning": 2698190,
+    "cleaning_notes": [
+      "CICIDS2017: shifted 1471716 timestamps with hour 1-7 by +12h (12-hour clock)",
+      "CICIDS2017: parsed months {'2017-07': 2830743} (expected 2017-07 only; check the day/month order if not)",
+      "CICIDS2017: several files record timestamps at one-minute resolution; flows within the same minute keep file order",
+      "dropped 132553 exact duplicate rows"
+    ],
+    "split": "chronological",
+    "label_mode": "binary",
+    "label_mapping": "benign -> 0, every attack category -> 1",
+    "features": {
+      "continuous_perturbable": [
+        "duration_s",
+        "fwd_pkts",
+        "bwd_pkts",
+        "fwd_bytes",
+        "bwd_bytes"
+      ],
+      "discrete_not_perturbed": [
+        "dst_port"
+      ],
+      "categorical_one_hot_not_perturbed": [
+        "protocol"
+      ],
+      "encoded_dimension": 10
+    },
+    "splits": {
+      "train": {
+        "rows": 1888733,
+        "benign": 1682038,
+        "malicious": 206695,
+        "per_category": {
+          "benign": 1682038,
+          "dos hulk": 172003,
+          "dos goldeneye": 10281,
+          "ftp-patator": 6333,
+          "dos slowloris": 5594,
+          "dos slowhttptest": 5246,
+          "ssh-patator": 5027,
+          "web attack - brute force": 1506,
+          "web attack - xss": 652,
+          "web attack - sql injection": 21,
+          "infiltration": 21,
+          "heartbleed": 11
+        },
+        "time_range_s": [
+          0.0,
+          281642.0
+        ]
+      },
+      "val": {
+        "rows": 269819,
+        "benign": 268388,
+        "malicious": 1431,
+        "per_category": {
+          "benign": 268388,
+          "bot": 1416,
+          "infiltration": 15
+        },
+        "time_range_s": [
+          281642.0,
+          352742.0
+        ]
+      },
+      "test": {
+        "rows": 539638,
+        "benign": 291235,
+        "malicious": 248403,
+        "per_category": {
+          "benign": 291235,
+          "ddos": 127834,
+          "portscan": 120021,
+          "bot": 548
+        },
+        "time_range_s": [
+          352742.0,
+          374762.0
+        ]
+      }
+    }
+  },
+  "target_test_graph": {
+    "nodes": 539638,
+    "relational_edges": 14806459,
+    "temporal_edges": 475816,
+    "mean_relational_degree": 54.87552396235995,
+    "nodes_with_temporal_predecessor": 0.8817318276325982,
+    "overlap_E_and_Et": 0.9615775846125393
+  }
+}
