@@ -1,1 +1,1 @@
-2.0.10 (2026-10-22, adds interpretability.py: t-SNE, separability, learned edge coefficients, phi feature weights, extended noise radii; evaluation only; Times-style fonts in all figures. All earlier results unchanged)
+2.0.11 (2026-10-26, release for the revised manuscript: figures at printed size with embedded fonts, Figure 1 source, per-seed results in results_v2.0/. All results unchanged)

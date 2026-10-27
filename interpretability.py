@@ -142,23 +142,26 @@ def plot_tsne(points: pd.DataFrame, title: str, path: Path) -> None:
     import matplotlib.pyplot as plt
 
     plt.rcParams.update({"font.family": "serif", "font.serif": ["Times New Roman", "Times", "STIXGeneral"],
-                         "mathtext.fontset": "stix", "font.size": 9})
+                         "mathtext.fontset": "stix", "pdf.fonttype": 42, "ps.fonttype": 42, "font.size": 8,
+                         "xtick.labelsize": 7, "ytick.labelsize": 7, "legend.fontsize": 7})
     panels = list(dict.fromkeys(points.panel))
     cats = [c for c in points.category.value_counts().index if c != "benign"]
     cmap = plt.get_cmap("tab10")
     colors = {"benign": "#b0b0b0", **{c: cmap(k % 10) for k, c in enumerate(cats)}}
-    fig, axes = plt.subplots(1, len(panels), figsize=(3.0 * len(panels), 3.2))
+    fig, axes = plt.subplots(1, len(panels), figsize=(1.62 * len(panels), 2.05))
     for ax, panel in zip(np.atleast_1d(axes), panels):
         p = points[points.panel == panel]
         for c in ["benign"] + cats:
             q = p[p.category == c]
-            ax.scatter(q.x, q.y, s=1.5, c=[colors[c]], label=c, alpha=0.6 if c == "benign" else 0.8, linewidths=0)
-        ax.set_title(panel)
+            ax.scatter(q.x, q.y, s=0.6, c=[colors[c]], label=c, alpha=0.6 if c == "benign" else 0.8, linewidths=0)
+        ax.set_title(panel, fontsize=8)
         ax.set_xticks([]); ax.set_yticks([])
     handles = [plt.Line2D([], [], marker="o", ls="", color=colors[c], label=c) for c in ["benign"] + cats]
-    fig.legend(handles=handles, loc="lower center", ncol=min(6, len(handles)), frameon=False, markerscale=1.2)
-    fig.suptitle(title)
-    fig.tight_layout(rect=(0, 0.12 if len(cats) > 5 else 0.08, 1, 0.95))
+    fig.legend(handles=handles, loc="lower center", ncol=min(6, len(handles)), frameon=False, markerscale=0.8,
+               handletextpad=0.2, columnspacing=0.9)
+    if title:
+        fig.suptitle(title)
+    fig.tight_layout(rect=(0, 0.17 if len(cats) > 5 else 0.11, 1, 0.95 if title else 1), w_pad=0.4)
     fig.savefig(path)
     plt.close(fig)
 
@@ -169,12 +172,13 @@ def plot_edges(df: pd.DataFrame, path: Path) -> None:
     import matplotlib.pyplot as plt
 
     plt.rcParams.update({"font.family": "serif", "font.serif": ["Times New Roman", "Times", "STIXGeneral"],
-                         "mathtext.fontset": "stix", "font.size": 9})
+                         "mathtext.fontset": "stix", "pdf.fonttype": 42, "ps.fonttype": 42, "font.size": 8,
+                         "xtick.labelsize": 7, "ytick.labelsize": 7, "legend.fontsize": 7})
     order = ["benign-benign", "attack-attack, same category", "attack-attack, different category", "benign-attack",
              "also a temporal edge", "relational only"]
     s = df[df.group.isin(order)].groupby("group").mean_a.agg(["mean", "std"]).reindex(order).dropna()
-    fig, ax = plt.subplots(figsize=(5.2, 2.6))
-    ax.barh(range(len(s)), s["mean"], xerr=s["std"], color="#4c72b0")
+    fig, ax = plt.subplots(figsize=(3.2, 2.0))
+    ax.barh(range(len(s)), s["mean"], xerr=s["std"], color="#4c72b0", error_kw={"linewidth": 0.8})
     ax.set_yticks(range(len(s)), s.index)
     ax.invert_yaxis()
     ax.set_xlabel(r"mean learned coefficient $a_{ij}$ (test graph)")
@@ -189,10 +193,11 @@ def plot_phi(df: pd.DataFrame, path: Path, top: int = 15) -> None:
     import matplotlib.pyplot as plt
 
     plt.rcParams.update({"font.family": "serif", "font.serif": ["Times New Roman", "Times", "STIXGeneral"],
-                         "mathtext.fontset": "stix", "font.size": 9})
+                         "mathtext.fontset": "stix", "pdf.fonttype": 42, "ps.fonttype": 42, "font.size": 8,
+                         "xtick.labelsize": 7, "ytick.labelsize": 7, "legend.fontsize": 7})
     s = df.groupby("attribute").share.agg(["mean", "std"]).sort_values("mean", ascending=False).head(top)
-    fig, ax = plt.subplots(figsize=(4.6, 0.22 * len(s) + 0.8))
-    ax.barh(range(len(s)), s["mean"], xerr=s["std"], color="#4c72b0")
+    fig, ax = plt.subplots(figsize=(3.2, 0.15 * len(s) + 0.6))
+    ax.barh(range(len(s)), s["mean"], xerr=s["std"], color="#4c72b0", error_kw={"linewidth": 0.8})
     ax.set_yticks(range(len(s)), s.index)
     ax.invert_yaxis()
     ax.set_xlabel(r"share of $\|\phi\|_1$ (mean over seeds)")

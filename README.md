@@ -26,7 +26,7 @@ nested zips), extracts only those into `data/`, and reports anything it skipped.
 |---|---|---|
 | UNSW-NB15 | `UNSW-NB15_1.csv` … `UNSW-NB15_4.csv` (the full, headerless CSVs) | `data/UNSW-NB15/` |
 | CICIDS2017 | `GeneratedLabelledFlows.zip` → `TrafficLabelling/*.pcap_ISCX.csv` (8 files) | `data/CICIDS2017/TrafficLabelling/` |
-| CSE-CIC-IDS2018 | `Processed Traffic Data for ML Algorithms/*.csv` (10 files) | `data/CSE-CIC-IDS2018/Processed Traffic Data for ML Algorithms/` |
+| CSE-CIC-IDS2018 | `Processed Traffic Data for ML Algorithms/*.csv` (10 files; the reported results use 9 of them, without the 20 February 2018 file) | `data/CSE-CIC-IDS2018/Processed Traffic Data for ML Algorithms/` |
 
 Two files that are commonly used **will not work**, deliberately: the UNSW-NB15
 `training-set`/`testing-set` CSVs and the CICIDS2017 `MachineLearningCVE` CSVs. Neither
@@ -34,11 +34,18 @@ contains timestamps or IP addresses, so a temporal flow graph cannot be built fr
 
 ## 3. Reproduce every table
 
-In Jupyter or Google Colab, open `run_experiments.ipynb` and run its cells in order. From a terminal:
+**Simplest:** put the dataset zips and this code zip in one folder and run
+`python run_all.py --allow-partial-cse --sensitivity-seeds 0 1 2` (or open `ARTGL_Colab.ipynb` in Google Colab).
+It prepares the data, runs the tests, all experiments, the cross-dataset and interpretability analyses,
+and writes every table to `results/ALL_RESULTS.txt`. It can be stopped and restarted at any time:
+finished runs are skipped and training resumes from the last epoch.
+
+Step by step, in Jupyter (`run_experiments.ipynb`) or from a terminal:
 
 ```bash
-python experiments.py --config configs/unsw_nb15.json      # Tables 2-8 and 11
-python experiments.py --config configs/cicids2017.json --suites main
+python experiments.py --config configs/unsw_nb15.json --suites main ablation noise adversarial   # Tables 2-5, 7, 9, 13
+python experiments.py --config configs/unsw_nb15.json --suites sensitivity --seeds 0 1 2           # Table 10
+python experiments.py --config configs/cicids2017.json --suites main                               # Table 3
 python cross_dataset.py --train configs/unsw_nb15.json --test configs/cicids2017.json
 python cross_dataset.py --train configs/cicids2017.json --test configs/unsw_nb15.json
 python cross_dataset.py --train configs/unsw_nb15.json configs/cicids2017.json --test configs/cse_cicids2018.json
@@ -60,9 +67,14 @@ Outputs:
   seed). A model that appears in several tables is trained once, so its numbers are
   identical everywhere. Delete `runs/` to recompute from scratch.
 
-Approximate cost on UNSW-NB15 with a single RTX 3060: the sensitivity suite is the most
-expensive one (4 coefficients × 5 values × 5 seeds = 100 trainings). Use `--suites` to run
-suites separately.
+**Environment of the reported results:** Python 3.13, PyTorch 2.11.0 (CUDA 13.0), PyTorch Geometric 2.8,
+pandas 2.2.3, NumPy 2.1.3, scikit-learn 1.6.1, on Google Colab with one NVIDIA L4 GPU. The full set of
+experiments takes roughly 50–70 GPU hours; the sensitivity suite (4 coefficients × 5 values × 3 seeds)
+is the most expensive part. Use `--suites` to run suites separately.
+
+**Reported results:** `results_v2.0/` contains the per-seed values, data summaries and configurations
+behind every table of the revised manuscript (the Supplementary Data), and `ALL_RESULTS.txt` with all
+tables as mean ± sample standard deviation.
 
 ## 4. Files
 
@@ -85,7 +97,11 @@ cross_dataset.py    cross-dataset protocol
 interpretability.py interpretability analysis of the trained models (no retraining)
 aggregate.py        per-seed -> mean ± std tables (CSV + LaTeX)
 plots.py            figures from the aggregated tables
+run_all.py          everything end to end (data, tests, experiments, tables), resumable
 run_artgl.py        one quick single-seed run
+ARTGL_Colab.ipynb   run_all.py on Google Colab
+figures/            LaTeX/TikZ source of Figure 1
+results_v2.0/       per-seed results of the revised manuscript
 prepare_data.py     pick the needed files out of downloaded zips into data/
 tests/              synthetic data, pipeline tests, model tests
 ```

@@ -88,3 +88,29 @@ Reviewer 1 directly; items 8–20 were found during the audit.
     embedding space, the learned edge coefficients a_ij grouped by endpoint labels, the
     edge-scorer weights |phi| per input feature, and bounded random noise at larger radii
     (0.5, 1, 2, 5). No model is retrained and no earlier result changes.
+
+## 2.0.11 (release for the revised manuscript)
+
+23. **Figures.** Figures are drawn at their printed size with embedded TrueType fonts
+    (Times-style), so their text stays legible in the manuscript. The source of Figure 1 is
+    in `figures/`, and the per-seed results of the revised manuscript are in `results_v2.0/`.
+    The CICIDS2017 loader now also logs how many empty or unlabelled rows it removes (288,602
+    in the reported run), so every row count in Table 2 can be traced. No computation changes.
+
+## Which code version produced the reported results
+
+The experiments ran on Google Colab between 11 and 22 October 2026, in several sessions.
+Each run's log records the code version that was used:
+
+| Results | Code version |
+|---|---|
+| UNSW-NB15 main comparison; first ablation runs | 2.0.7 |
+| Remaining ablation, noise, adversarial, CICIDS2017 main, sensitivity, cross-dataset | 2.0.9 |
+| Interpretability analysis and larger noise radii | 2.0.10 |
+
+Versions 2.0.7–2.0.11 compute identical results: 2.0.9 only adds per-epoch checkpoints so
+that interrupted Colab sessions resume where they stopped, 2.0.10 adds the evaluation-only
+interpretability script, and 2.0.11 changes only how figures are drawn. (Version 2.0.8,
+which changed the Random Forest and XGBoost settings, was withdrawn before any reported
+result was computed with it.) Running release v2.0 (2.0.11) therefore reproduces every
+reported number.

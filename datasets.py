@@ -265,6 +265,8 @@ def load_cicids2017(paths: Iterable[str], feature_set: str = "full") -> LoadedDa
     rows_read = len(raw)
     raw = raw.dropna(how="all")
     raw = raw[raw["Label"].notna()]
+    if len(raw) < rows_read:
+        notes.append(f"dropped {rows_read - len(raw)} empty rows or rows without a label")
 
     frame = raw.copy()
     frame["__time"] = _parse_cicids2017_time(frame["Timestamp"], notes)
